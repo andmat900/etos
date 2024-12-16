@@ -69,7 +69,7 @@ type EnvironmentRequestSpec struct {
 type EnvironmentRequestStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
 
-	EnvironmentProviders []corev1.ObjectReference `json:"environmentProviders,omitempty"`
+	EnvironmentProvider corev1.ObjectReference `json:"environmentProviders,omitempty"`
 
 	StartTime      *metav1.Time `json:"startTime,omitempty"`
 	CompletionTime *metav1.Time `json:"completionTime,omitempty"`
@@ -86,8 +86,8 @@ type EnvironmentRequest struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   EnvironmentRequestSpec   `json:"spec,omitempty"`
-	Status EnvironmentRequestStatus `json:"status,omitempty"`
+	Spec     EnvironmentRequestSpec     `json:"spec,omitempty"`
+	Statuses []EnvironmentRequestStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true

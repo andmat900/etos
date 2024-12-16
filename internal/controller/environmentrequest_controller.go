@@ -72,7 +72,8 @@ func (r *EnvironmentRequestReconciler) Reconcile(ctx context.Context, req ctrl.R
 		logger.Error(err, "failed to get environmentrequest")
 		return ctrl.Result{}, err
 	}
-	if environmentrequest.Status.CompletionTime != nil {
+	status := environmentrequest.Statuses[0]
+	if status.CompletionTime != nil {
 		return ctrl.Result{}, nil
 	}
 	if err := r.reconcile(ctx, environmentrequest); err != nil {
@@ -88,9 +89,15 @@ func (r *EnvironmentRequestReconciler) reconcile(ctx context.Context, environmen
 	logger := log.FromContext(ctx)
 
 	// Set initial statuses if not set.
-	if meta.FindStatusCondition(environmentrequest.Status.Conditions, StatusReady) == nil {
-		logger.Info("Set ready status")
-		meta.SetStatusCondition(&environmentrequest.Status.Conditions, metav1.Condition{Status: metav1.ConditionFalse, Type: StatusReady, Message: "Reconciliation started", Reason: "Pending"})
+	statusesUpdated := false
+	for _, status := range environmentrequest.Statuses {
+		if meta.FindStatusCondition(status.Conditions, StatusReady) == nil {
+			logger.Info("Set ready status")
+			meta.SetStatusCondition(&status.Conditions, metav1.Condition{Status: metav1.ConditionFalse, Type: StatusReady, Message: "Reconciliation started", Reason: "Pending"})
+			statusesUpdated = true
+		}
+	}
+	if statusesUpdated {
 		return r.Status().Update(ctx, environmentrequest)
 	}
 
@@ -101,14 +108,17 @@ func (r *EnvironmentRequestReconciler) reconcile(ctx context.Context, environmen
 		return err
 	}
 
-	environmentrequest.Status.EnvironmentProviders = nil
+	status.EnvironmentProviders = nil
+	environmentrequest.Statuses = []etosv1alpha1.EnvironmentRequestStatus{}
+
 	for _, activeProvider := range environmentProviders.activeJobs {
 		jobRef, err := ref.GetReference(r.Scheme, activeProvider)
 		if err != nil {
 			logger.Error(err, "failed to make reference to active environment provider", "provider", activeProvider)
 			continue
 		}
-		environmentrequest.Status.EnvironmentProviders = append(environmentrequest.Status.EnvironmentProviders, *jobRef)
+
+		status.EnvironmentProviders = append(status.EnvironmentProviders, *jobRef)
 	}
 	if err := r.Status().Update(ctx, environmentrequest); err != nil {
 		return err
@@ -121,8 +131,9 @@ func (r *EnvironmentRequestReconciler) reconcile(ctx context.Context, environmen
 		ExecutionSpace: environmentrequest.Spec.Providers.ExecutionSpace.ID,
 		LogArea:        environmentrequest.Spec.Providers.LogArea.ID,
 	}
+
 	if err := checkProviders(ctx, r, environmentrequest.Namespace, providers); err != nil {
-		meta.SetStatusCondition(&environmentrequest.Status.Conditions,
+		meta.SetStatusCondition(&status.Conditions,
 			metav1.Condition{
 				Status:  metav1.ConditionFalse,
 				Type:    StatusReady,
@@ -135,7 +146,7 @@ func (r *EnvironmentRequestReconciler) reconcile(ctx context.Context, environmen
 
 	// Reconcile environment provider
 	if err := r.reconcileEnvironmentProvider(ctx, environmentProviders, environmentrequest); err != nil {
-		meta.SetStatusCondition(&environmentrequest.Status.Conditions,
+		meta.SetStatusCondition(&status.Conditions,
 			metav1.Condition{
 				Status:  metav1.ConditionFalse,
 				Type:    StatusReady,
@@ -147,16 +158,22 @@ func (r *EnvironmentRequestReconciler) reconcile(ctx context.Context, environmen
 	}
 
 	if environmentProviders.failed() {
-		if environmentrequest.Status.CompletionTime == nil {
-			environmentCondition := meta.FindStatusCondition(environmentrequest.Status.Conditions, StatusReady)
-			environmentrequest.Status.CompletionTime = &environmentCondition.LastTransitionTime
+		if status.CompletionTime == nil {
+			environmentCondition := meta.FindStatusCondition(status.Conditions, StatusReady)
+			status.CompletionTime = &environmentCondition.LastTransitionTime
 			return r.Status().Update(ctx, environmentrequest)
 		}
 	}
 	if environmentProviders.successful() {
-		if environmentrequest.Status.CompletionTime == nil {
-			environmentCondition := meta.FindStatusCondition(environmentrequest.Status.Conditions, StatusReady)
-			environmentrequest.Status.CompletionTime = &environmentCondition.LastTransitionTime
+		statusesUpdated := false
+		for _, status := range environmentrequest.Statuses {
+			if status.CompletionTime == nil {
+				environmentCondition := meta.FindStatusCondition(status.Conditions, StatusReady)
+				status.CompletionTime = &environmentCondition.LastTransitionTime
+				statusesUpdated = true
+			}
+		}
+		if statusesUpdated {
 			return r.Status().Update(ctx, environmentrequest)
 		}
 	}
@@ -168,44 +185,87 @@ func (r *EnvironmentRequestReconciler) reconcile(ctx context.Context, environmen
 func (r *EnvironmentRequestReconciler) reconcileEnvironmentProvider(ctx context.Context, providers *jobs, environmentrequest *etosv1alpha1.EnvironmentRequest) error {
 	// Environment provider failed, setting status.
 	if providers.failed() {
-		environmentProvider := providers.failedJobs[0] // TODO: We should support multiple providers in the future
-		result, err := terminationLog(ctx, r, environmentProvider, environmentrequest.Name)
-		if err != nil {
-			result.Description = err.Error()
+		statusesUpdated := false
+		for _, environmentProvider := range providers.failedJobs {
+			var status *etosv1alpha1.EnvironmentRequestStatus
+			for _, _status := range environmentrequest.Statuses {
+				if environmentProvider.Name == _status.EnvironmentProvider.Name {
+					status = &_status
+				}
+			}
+			if status == nil {
+				continue
+			}
+			result, err := terminationLog(ctx, r, environmentProvider, environmentrequest.Name)
+			if err != nil {
+				result.Description = err.Error()
+			}
+			if result.Description == "" {
+				result.Description = "Failed to provision an environment - Unknown error"
+			}
+			if meta.SetStatusCondition(&status.Conditions, metav1.Condition{Type: StatusReady, Status: metav1.ConditionFalse, Reason: "Failed", Message: result.Description}) {
+				statusesUpdated = true
+			}
 		}
-		if result.Description == "" {
-			result.Description = "Failed to provision an environment - Unknown error"
-		}
-		if meta.SetStatusCondition(&environmentrequest.Status.Conditions, metav1.Condition{Type: StatusReady, Status: metav1.ConditionFalse, Reason: "Failed", Message: result.Description}) {
+		if statusesUpdated {
 			return r.Status().Update(ctx, environmentrequest)
 		}
 	}
 	// Environment provider successful, setting status.
 	if providers.successful() {
-		environmentProvider := providers.successfulJobs[0] // TODO: We should support multiple providers in the future
-		result, err := terminationLog(ctx, r, environmentProvider, environmentrequest.Name)
-		if err != nil {
-			result.Description = err.Error()
-		}
-		if result.Conclusion == ConclusionFailed {
-			if meta.SetStatusCondition(&environmentrequest.Status.Conditions, metav1.Condition{Type: StatusReady, Status: metav1.ConditionFalse, Reason: "Failed", Message: result.Description}) {
-				return r.Status().Update(ctx, environmentrequest)
-			}
-		}
-		if meta.SetStatusCondition(&environmentrequest.Status.Conditions, metav1.Condition{Type: StatusReady, Status: metav1.ConditionTrue, Reason: "Done", Message: result.Description}) {
-			for _, environmentProvider := range providers.successfulJobs {
-				if err := r.Delete(ctx, environmentProvider, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
-					if !apierrors.IsNotFound(err) {
-						return err
-					}
+		statusesUpdated := false
+		for _, environmentProvider := range providers.successfulJobs {
+			var status *etosv1alpha1.EnvironmentRequestStatus
+			for _, _status := range environmentrequest.Statuses {
+				if environmentProvider.Name == _status.EnvironmentProvider.Name {
+					status = &_status
 				}
 			}
+			if status == nil {
+				continue
+			}
+			result, err := terminationLog(ctx, r, environmentProvider, environmentrequest.Name)
+			if err != nil {
+				result.Description = err.Error()
+			}
+			if result.Conclusion == ConclusionFailed {
+				if meta.SetStatusCondition(&status.Conditions, metav1.Condition{Type: StatusReady, Status: metav1.ConditionFalse, Reason: "Failed", Message: result.Description}) {
+					statusesUpdated = true
+				}
+			}
+			if meta.SetStatusCondition(&status.Conditions, metav1.Condition{Type: StatusReady, Status: metav1.ConditionTrue, Reason: "Done", Message: result.Description}) {
+				for _, environmentProvider := range providers.successfulJobs {
+					if err := r.Delete(ctx, environmentProvider, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
+						if !apierrors.IsNotFound(err) {
+							return err
+						}
+					}
+				}
+				statusesUpdated = true
+			}
+		}
+		if statusesUpdated {
 			return r.Status().Update(ctx, environmentrequest)
 		}
 	}
 	// Suite runners active, setting status
 	if providers.active() {
-		if meta.SetStatusCondition(&environmentrequest.Status.Conditions, metav1.Condition{Type: StatusReady, Status: metav1.ConditionFalse, Reason: "Running", Message: "Environment provider is running"}) {
+		statusesUpdated := false
+		for _, environmentProvider := range providers.activeJobs {
+			var status *etosv1alpha1.EnvironmentRequestStatus
+			for _, _status := range environmentrequest.Statuses {
+				if environmentProvider.Name == _status.EnvironmentProvider.Name {
+					status = &_status
+				}
+			}
+			if status == nil {
+				continue
+			}
+			if meta.SetStatusCondition(&status.Conditions, metav1.Condition{Type: StatusReady, Status: metav1.ConditionFalse, Reason: "Running", Message: "Environment provider is running"}) {
+				statusesUpdated = true
+			}
+		}
+		if statusesUpdated {
 			return r.Status().Update(ctx, environmentrequest)
 		}
 	}

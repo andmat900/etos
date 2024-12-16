@@ -273,7 +273,8 @@ func (r *TestRunReconciler) reconcileEnvironmentRequest(ctx context.Context, tes
 	}
 
 	for _, environmentRequest := range environmentRequestList.Items {
-		condition := meta.FindStatusCondition(environmentRequest.Status.Conditions, StatusReady)
+		status := environmentRequest.Statuses[0]
+		condition := meta.FindStatusCondition(status.Conditions, StatusReady)
 		if condition != nil && condition.Status == metav1.ConditionFalse && condition.Reason == "Failed" {
 			if meta.SetStatusCondition(&testrun.Status.Conditions, metav1.Condition{Type: StatusEnvironment, Status: metav1.ConditionFalse, Reason: "Failed", Message: "Failed to create environment for test"}) {
 				return r.Status().Update(ctx, testrun), true
