@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - 20250203_image_upload_debug
   workflow_dispatch:
 
 permissions:
@@ -27,7 +28,7 @@ jobs:
           rm -r dist | true
       - name: Generate manifest file
         run: |
-          IMAGE_ID=ghcr.io/eiffel-community/etos-controller
+          IMAGE_ID=ghcr.io/andmat900/etos-controller
           # Strip git ref prefix from version
           VERSION=$(echo "${{ github.ref }}" | sed -e 's,.*/\(.*\),\1,')
           # Strip "v" prefix from tag name
@@ -39,10 +40,10 @@ jobs:
           make docker-build docker-push split-installer IMG=$IMAGE_ID:$VERSION
           mkdir -p manifests/controller
           cp dist/* manifests/controller/
-      - name: Commit changes
-        run: |
-          git config --global user.name 'github-actions[bot]'
-          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-          git add .
-          git commit -m "Update install manifest"
-          git push origin main
+      # - name: Commit changes
+      #   run: |
+      #     git config --global user.name 'github-actions[bot]'
+      #     git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+      #     git add .
+      #     git commit -m "Update install manifest"
+      #     git push origin main
