@@ -32,12 +32,10 @@ from requests.exceptions import HTTPError
 
 from etos_lib.lib.http import Http
 
-#import http.client as http_client
-
 
 HTTP_RETRY_PARAMETERS = Retry(
     total=None,
-    read=10,  # With 1 as backoff_factor, will retry for 1023s
+    read=0,
     connect=10,  # With 1 as backoff_factor, will retry for 1023s
     status=10,  # With 1 as backoff_factor, will retry for 1023s
     backoff_factor=1,
@@ -95,8 +93,6 @@ class Downloader(Thread):  # pylint:disable=too-many-instance-attributes
         self.__http = Http(retry=HTTP_RETRY_PARAMETERS)
         self.failed: bool = False
         self.downloads: set[str] = set()
-        self.max_downloads = 2
-        self.logger.info(f"Using tweaked downloader. Max read retries: 10. Max parallel downloads: {self.max_downloads}")
 
     def __download(self, item: Downloadable) -> None:
         """Download files."""
@@ -231,10 +227,7 @@ class Downloader(Thread):  # pylint:disable=too-many-instance-attributes
         """Run the log downloader thread."""
         self.started = True
         # 10 is the default max number of connections in Python requests library
-        # originally: 10
-        # reduced to 5 for download robustness testing
-        # http_client.HTTPConnection.debuglevel = 1
-        with ThreadPool(self.max_downloads) as pool:
+        with ThreadPool(10) as pool:
             while True:
                 if self.__exit and not self.__clear_queue:
                     self.logger.warning("Forced to exit without clearing the queue.")
