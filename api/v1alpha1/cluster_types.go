@@ -162,6 +162,17 @@ type ETOSAPI struct {
 	Replicas *int32 `json:"replicas,omitempty" protobuf:"varint,1,opt,name=replicas"`
 }
 
+// ETOSKeys describes the deployment of the ETOS Keys service.
+type ETOSKeys struct {
+	Image `json:",inline"`
+	// Public key for the ETOS Keys service
+	// +optional
+	PublicKey Var `json:"publicKey,omitempty"`
+	// Private key for the ETOS Keys service
+	// +optional
+	PrivateKey Var `json:"privateKey,omitempty"`
+}
+
 // ETOSSuiteStarterConfig describes the configuration required for a suite starter.
 // This is separate from the ETOSConfig as we want to remove this in the future when the suite
 // starter is no longer in use.
@@ -274,6 +285,9 @@ type ETOS struct {
 	// +kubebuilder:default={"image": "ghcr.io/eiffel-community/etos-api:latest"}
 	// +optional
 	API ETOSAPI `json:"api"`
+	// +kubebuilder:default={"image": "ghcr.io/eiffel-community/etos-keys:latest"}
+	// +optional
+	Keys ETOSKeys `json:"keys"`
 	// +kubebuilder:default={"image": "ghcr.io/eiffel-community/etos-sse:latest"}
 	// +optional
 	SSE ETOSSSE `json:"sse"`

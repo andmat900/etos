@@ -116,6 +116,12 @@ func (r *ETOSDeployment) Reconcile(ctx context.Context, cluster *etosv1alpha1.Cl
 		return err
 	}
 
+	keys := etosapi.NewETOSKeysDeployment(r.Keys, r.Scheme, r.Client)
+	if err := keys.Reconcile(ctx, cluster); err != nil {
+		logger.Error(err, "ETOS Keys reconciliation failed")
+		return err
+	}
+
 	suitestarter := etossuitestarter.NewETOSSuiteStarterDeployment(r.SuiteStarter, r.Scheme, r.Client, r.rabbitmqSecret, r.messagebusSecret, config, encryption)
 	if err := suitestarter.Reconcile(ctx, cluster); err != nil {
 		logger.Error(err, "ETOS SuiteStarter reconciliation failed")
@@ -487,6 +493,18 @@ func (r *ETOSDeployment) ingressRule(name types.NamespacedName) networkingv1.Ing
 								Name: fmt.Sprintf("%s-etos-logarea", name.Name),
 								Port: networkingv1.ServiceBackendPort{
 									Number: etosapi.LogAreaServicePort,
+								},
+							},
+						},
+					},
+					{
+						Path:     "/keys",
+						PathType: &prefix,
+						Backend: networkingv1.IngressBackend{
+							Service: &networkingv1.IngressServiceBackend{
+								Name: fmt.Sprintf("%s-etos-keys", name.Name),
+								Port: networkingv1.ServiceBackendPort{
+									Number: etosapi.KeysServicePort,
 								},
 							},
 						},
