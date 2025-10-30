@@ -97,8 +97,6 @@ func (r *ETOSKeysDeployment) GenerateRSAKeyPair(keySize int) (privateKeyPEM, pub
 	return privateKeyPEM, publicKeyPEM, nil
 }
 
-
-
 // Reconcile will reconcile the ETOS Keys service to its expected state.
 func (r *ETOSKeysDeployment) Reconcile(ctx context.Context, cluster *etosv1alpha1.Cluster) error {
 	var err error
@@ -352,6 +350,26 @@ func (r *ETOSKeysDeployment) deployment(name types.NamespacedName, secretName st
 				Spec: corev1.PodSpec{
 					ServiceAccountName: name.Name,
 					Containers:         []corev1.Container{r.container(name, secretName)},
+					Volumes: []corev1.Volume{
+						{
+							Name: "etos-keys",
+							VolumeSource: corev1.VolumeSource{
+								Secret: &corev1.SecretVolumeSource{
+									SecretName: secretName,
+									Items: []corev1.KeyToPath{
+										{
+											Key:  "private_key.pem",
+											Path: "private_key.pem",
+										},
+										{
+											Key:  "public_key.pem",
+											Path: "public_key.pem",
+										},
+									},
+								},
+							},
+						},
+					},
 				},
 			},
 		},
@@ -421,6 +439,13 @@ func (r *ETOSKeysDeployment) container(name types.NamespacedName, secretName str
 			},
 		},
 		Env: r.environment(),
+		VolumeMounts: []corev1.VolumeMount{
+			{
+				Name:      "etos-keys",
+				MountPath: "/etc/etos-keys",
+				ReadOnly:  true,
+			},
+		},
 	}
 }
 
@@ -458,12 +483,12 @@ func (r *ETOSKeysDeployment) config(ctx context.Context, name types.NamespacedNa
 	var privateKeyErr, publicKeyErr error
 
 	if privateKeyValue, privateKeyErr = r.PrivateKey.Get(ctx, r.Client, name.Namespace); privateKeyErr == nil && len(privateKeyValue) > 0 {
-		data["ETOS_KEYS_PRIVATE_KEY"] = privateKeyValue
+		data["private_key.pem"] = privateKeyValue
 		logger.Info("Using private key from external source")
 	}
 
 	if publicKeyValue, publicKeyErr = r.PublicKey.Get(ctx, r.Client, name.Namespace); publicKeyErr == nil && len(publicKeyValue) > 0 {
-		data["ETOS_KEYS_PUBLIC_KEY"] = publicKeyValue
+		data["public_key.pem"] = publicKeyValue
 		logger.Info("Using public key from external source")
 	}
 
@@ -476,11 +501,15 @@ func (r *ETOSKeysDeployment) config(ctx context.Context, name types.NamespacedNa
 			return nil, fmt.Errorf("failed to generate RSA key pair: %w", err)
 		}
 
-		data["ETOS_KEYS_PRIVATE_KEY"] = []byte(privateKeyPEM)
-		data["ETOS_KEYS_PUBLIC_KEY"] = []byte(publicKeyPEM)
+		data["private_key.pem"] = []byte(privateKeyPEM)
+		data["public_key.pem"] = []byte(publicKeyPEM)
 
 		logger.Info("Successfully generated new RSA key pair for ETOS Keys service")
 	}
+
+	// Set environment variables pointing to the key file paths
+	data["PRIVATE_KEY_PATH"] = []byte("/etc/etos-keys/private_key.pem")
+	data["PUBLIC_KEY_PATH"] = []byte("/etc/etos-keys/public_key.pem")
 
 	return &corev1.Secret{
 		ObjectMeta: r.meta(name),
