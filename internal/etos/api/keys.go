@@ -491,18 +491,30 @@ func (r *ETOSKeysDeployment) config(ctx context.Context, name types.NamespacedNa
 
 		logger.Info("Successfully generated new RSA key pair for ETOS Keys service")
 	} else {
-		// Add public key configuration
-		if publicKeyValue, err := r.PublicKey.Get(ctx, r.Client, name.Namespace); err == nil {
+		// Add public key configuration only if it has a valid value
+		if publicKeyValue, err := r.PublicKey.Get(ctx, r.Client, name.Namespace); err == nil && len(publicKeyValue) > 0 {
 			data["ETOS_KEYS_PUBLIC_KEY"] = publicKeyValue
-		} else {
-			data["ETOS_KEYS_PUBLIC_KEY"] = []byte("")
 		}
 
-		// Add private key configuration
-		if privateKeyValue, err := r.PrivateKey.Get(ctx, r.Client, name.Namespace); err == nil {
+		// Add private key configuration only if it has a valid value
+		if privateKeyValue, err := r.PrivateKey.Get(ctx, r.Client, name.Namespace); err == nil && len(privateKeyValue) > 0 {
 			data["ETOS_KEYS_PRIVATE_KEY"] = privateKeyValue
-		} else {
-			data["ETOS_KEYS_PRIVATE_KEY"] = []byte("")
+		}
+
+		// If neither key was successfully retrieved, we should generate them
+		if len(data) == 0 {
+			logger := log.FromContext(ctx, "GenerateKeys", "ETOSKeys", "Namespace", name.Namespace)
+			logger.Info("No keys found in external sources, generating new RSA key pair for ETOS Keys service")
+
+			privateKeyPEM, publicKeyPEM, err := r.GenerateRSAKeyPair(2048)
+			if err != nil {
+				return nil, fmt.Errorf("failed to generate RSA key pair: %w", err)
+			}
+
+			data["ETOS_KEYS_PRIVATE_KEY"] = []byte(privateKeyPEM)
+			data["ETOS_KEYS_PUBLIC_KEY"] = []byte(publicKeyPEM)
+
+			logger.Info("Successfully generated new RSA key pair for ETOS Keys service")
 		}
 	}
 
