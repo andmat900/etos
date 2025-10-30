@@ -72,14 +72,11 @@ func (r *ETOSKeysDeployment) GenerateRSAKeyPair(keySize int) (privateKeyPEM, pub
 		return "", "", fmt.Errorf("failed to generate private key: %w", err)
 	}
 
-	// Encode private key to PEM format
-	privateKeyBytes, err := x509.MarshalPKCS8PrivateKey(privateKey)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to marshal private key: %w", err)
-	}
+	// Encode private key to PEM format (PKCS1 format for RSA compatibility)
+	privateKeyBytes := x509.MarshalPKCS1PrivateKey(privateKey)
 
 	privateKeyPEMBlock := &pem.Block{
-		Type:  "PRIVATE KEY",
+		Type:  "RSA PRIVATE KEY",
 		Bytes: privateKeyBytes,
 	}
 	privateKeyPEM = string(pem.EncodeToMemory(privateKeyPEMBlock))
@@ -100,28 +97,7 @@ func (r *ETOSKeysDeployment) GenerateRSAKeyPair(keySize int) (privateKeyPEM, pub
 	return privateKeyPEM, publicKeyPEM, nil
 }
 
-// ShouldGenerateKeys checks if key generation is needed based on the cluster spec
-func (r *ETOSKeysDeployment) ShouldGenerateKeys(ctx context.Context, namespace string) bool {
-	// Check if both private and public keys are missing or empty
-	privateKeyEmpty := r.isKeyEmpty(ctx, &r.PrivateKey, namespace)
-	publicKeyEmpty := r.isKeyEmpty(ctx, &r.PublicKey, namespace)
 
-	return privateKeyEmpty || publicKeyEmpty
-}
-
-// isKeyEmpty checks if a Var is empty (no value and no reference)
-func (r *ETOSKeysDeployment) isKeyEmpty(ctx context.Context, keyVar *etosv1alpha1.Var, namespace string) bool {
-	if keyVar.Value != "" {
-		return false
-	}
-	if keyVar.ValueFrom.SecretKeyRef != nil || keyVar.ValueFrom.ConfigMapKeyRef != nil {
-		// Try to get the value to see if it exists and is non-empty
-		if value, err := keyVar.Get(ctx, r.Client, namespace); err == nil && len(value) > 0 {
-			return false
-		}
-	}
-	return true
-}
 
 // Reconcile will reconcile the ETOS Keys service to its expected state.
 func (r *ETOSKeysDeployment) Reconcile(ctx context.Context, cluster *etosv1alpha1.Cluster) error {
@@ -475,11 +451,25 @@ func (r *ETOSKeysDeployment) meta(name types.NamespacedName) metav1.ObjectMeta {
 // config creates a new Secret to be used as configuration for the ETOS Keys.
 func (r *ETOSKeysDeployment) config(ctx context.Context, name types.NamespacedName) (*corev1.Secret, error) {
 	data := map[string][]byte{}
+	logger := log.FromContext(ctx, "GenerateKeys", "ETOSKeys", "Namespace", name.Namespace)
 
-	// Check if we need to generate keys
-	if r.ShouldGenerateKeys(ctx, name.Namespace) {
-		logger := log.FromContext(ctx, "GenerateKeys", "ETOSKeys", "Namespace", name.Namespace)
-		logger.Info("Generating new RSA key pair for ETOS Keys service")
+	// Try to get keys from external sources first
+	var privateKeyValue, publicKeyValue []byte
+	var privateKeyErr, publicKeyErr error
+
+	if privateKeyValue, privateKeyErr = r.PrivateKey.Get(ctx, r.Client, name.Namespace); privateKeyErr == nil && len(privateKeyValue) > 0 {
+		data["ETOS_KEYS_PRIVATE_KEY"] = privateKeyValue
+		logger.Info("Using private key from external source")
+	}
+
+	if publicKeyValue, publicKeyErr = r.PublicKey.Get(ctx, r.Client, name.Namespace); publicKeyErr == nil && len(publicKeyValue) > 0 {
+		data["ETOS_KEYS_PUBLIC_KEY"] = publicKeyValue
+		logger.Info("Using public key from external source")
+	}
+
+	// If we don't have both keys from external sources, generate a new key pair
+	if len(data) < 2 {
+		logger.Info("Generating new RSA key pair for ETOS Keys service (missing or invalid external keys)")
 
 		privateKeyPEM, publicKeyPEM, err := r.GenerateRSAKeyPair(2048)
 		if err != nil {
@@ -490,32 +480,6 @@ func (r *ETOSKeysDeployment) config(ctx context.Context, name types.NamespacedNa
 		data["ETOS_KEYS_PUBLIC_KEY"] = []byte(publicKeyPEM)
 
 		logger.Info("Successfully generated new RSA key pair for ETOS Keys service")
-	} else {
-		// Add public key configuration only if it has a valid value
-		if publicKeyValue, err := r.PublicKey.Get(ctx, r.Client, name.Namespace); err == nil && len(publicKeyValue) > 0 {
-			data["ETOS_KEYS_PUBLIC_KEY"] = publicKeyValue
-		}
-
-		// Add private key configuration only if it has a valid value
-		if privateKeyValue, err := r.PrivateKey.Get(ctx, r.Client, name.Namespace); err == nil && len(privateKeyValue) > 0 {
-			data["ETOS_KEYS_PRIVATE_KEY"] = privateKeyValue
-		}
-
-		// If neither key was successfully retrieved, we should generate them
-		if len(data) == 0 {
-			logger := log.FromContext(ctx, "GenerateKeys", "ETOSKeys", "Namespace", name.Namespace)
-			logger.Info("No keys found in external sources, generating new RSA key pair for ETOS Keys service")
-
-			privateKeyPEM, publicKeyPEM, err := r.GenerateRSAKeyPair(2048)
-			if err != nil {
-				return nil, fmt.Errorf("failed to generate RSA key pair: %w", err)
-			}
-
-			data["ETOS_KEYS_PRIVATE_KEY"] = []byte(privateKeyPEM)
-			data["ETOS_KEYS_PUBLIC_KEY"] = []byte(publicKeyPEM)
-
-			logger.Info("Successfully generated new RSA key pair for ETOS Keys service")
-		}
 	}
 
 	return &corev1.Secret{
