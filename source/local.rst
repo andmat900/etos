@@ -29,6 +29,12 @@ Deploying a sample testrun straight into Kubernetes is viable though. There is a
 
     kubectl create -f config/samples/etos_v1alpha1_testrun.yaml
 
+Once ETOS has been deployed, it can be torn down using:
+
+::
+
+    make undeploy-local
+
 
 Verify changes
 ==============
