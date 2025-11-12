@@ -226,8 +226,7 @@ class Kubectl:
         command: list[str | Value] = [
             "kubectl",
             "wait",
-            "--for",
-            wait_for,
+            f"--for={wait_for}",
             "--timeout",
             f"{timeout}s",
         ]
