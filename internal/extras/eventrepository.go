@@ -76,10 +76,14 @@ func (r *EventRepositoryDeployment) Reconcile(ctx context.Context, cluster *etos
 		configName = namespacedName.Name
 	}
 
+	var notReadyErr error
 	_, err = r.reconcileDeployment(ctx, logger, namespacedName, configName, cluster)
 	if err != nil {
-		logger.Error(err, "Failed to reconcile the EventRepository deployment")
-		return err
+		if !readiness.IsNotReadyError(err) {
+			logger.Error(err, "Failed to reconcile the EventRepository deployment")
+			return err
+		}
+		notReadyErr = err
 	}
 	_, err = r.reconcileService(ctx, logger, namespacedName, cluster)
 	if err != nil {
@@ -103,7 +107,7 @@ func (r *EventRepositoryDeployment) Reconcile(ctx context.Context, cluster *etos
 		logger.Info("Host for the EventRepository", "host", r.Host)
 	}
 
-	return nil
+	return notReadyErr
 }
 
 // reconcileConfig will reconcile the secret to use as configuration for the event repository.

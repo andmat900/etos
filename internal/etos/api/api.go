@@ -75,10 +75,14 @@ func (r *ETOSApiDeployment) Reconcile(ctx context.Context, cluster *etosv1alpha1
 		logger.Error(err, "Failed to reconcile the config for the ETOS API")
 		return err
 	}
+	var notReadyErr error
 	_, err = r.reconcileDeployment(ctx, logger, namespacedName, cfg.ObjectMeta.Name, cluster)
 	if err != nil {
-		logger.Error(err, "Failed to reconcile the deployment for the ETOS API")
-		return err
+		if !readiness.IsNotReadyError(err) {
+			logger.Error(err, "Failed to reconcile the deployment for the ETOS API")
+			return err
+		}
+		notReadyErr = err
 	}
 	_, err = r.reconcileSecret(ctx, logger, namespacedName, cluster)
 	if err != nil {
@@ -105,7 +109,7 @@ func (r *ETOSApiDeployment) Reconcile(ctx context.Context, cluster *etosv1alpha1
 		logger.Error(err, "Failed to reconcile the service for the ETOS API")
 		return err
 	}
-	return nil
+	return notReadyErr
 }
 
 // reconcileConfig will reconcile the secret to use as configuration for the ETOS API.

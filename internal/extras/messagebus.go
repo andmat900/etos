@@ -80,10 +80,14 @@ func (r *MessageBusDeployment) Reconcile(ctx context.Context, cluster *etosv1alp
 		return err
 	}
 
+	var notReadyErr error
 	_, err = r.reconcileStatefulset(ctx, logger, namespacedName, cluster)
 	if err != nil {
-		logger.Error(err, "Failed to reconcile the MessageBus statefulset")
-		return err
+		if !readiness.IsNotReadyError(err) {
+			logger.Error(err, "Failed to reconcile the MessageBus statefulset")
+			return err
+		}
+		notReadyErr = err
 	}
 	_, err = r.reconcileService(ctx, logger, namespacedName, cluster)
 	if err != nil {
@@ -91,7 +95,7 @@ func (r *MessageBusDeployment) Reconcile(ctx context.Context, cluster *etosv1alp
 		return err
 	}
 
-	return nil
+	return notReadyErr
 }
 
 // reconcileSecret will reconcile the messagebus secret to its expected state.

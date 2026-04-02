@@ -93,10 +93,14 @@ func (r *ETOSSuiteStarterDeployment) Reconcile(ctx context.Context, cluster *eto
 		suiteRunnerTemplateName = r.SuiteRunnerTemplateSecretName
 	}
 	logger.Info("Suite runner template", "suiteRunnerTemplateName", suiteRunnerTemplateName)
+	var notReadyErr error
 	_, err = r.reconcileDeployment(ctx, logger, cfg.ObjectMeta.Name, suiteRunnerTemplateName, suiteStarterName, cluster)
 	if err != nil {
-		logger.Error(err, "Failed to reconcile the deployment for the ETOS Suite Starter")
-		return err
+		if !readiness.IsNotReadyError(err) {
+			logger.Error(err, "Failed to reconcile the deployment for the ETOS Suite Starter")
+			return err
+		}
+		notReadyErr = err
 	}
 	_, err = r.reconcileSecret(ctx, logger, suiteStarterName, cluster)
 	if err != nil {
@@ -136,7 +140,7 @@ func (r *ETOSSuiteStarterDeployment) Reconcile(ctx context.Context, cluster *eto
 		logger.Error(err, "Failed to reconcile the Suite Runner role binding")
 		return err
 	}
-	return nil
+	return notReadyErr
 }
 
 // reconcileSuiteRunnerRole will reconcile the ETOS Suite Runner role to its expected state.
