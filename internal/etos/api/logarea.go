@@ -22,6 +22,7 @@ import (
 
 	etosv1alpha1 "github.com/eiffel-community/etos/api/v1alpha1"
 	"github.com/eiffel-community/etos/internal/config"
+	"github.com/eiffel-community/etos/internal/readiness"
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -77,7 +78,7 @@ func (r *ETOSLogAreaDeployment) Reconcile(ctx context.Context, cluster *etosv1al
 		logger.Error(err, "Failed to reconcile the service for the ETOS LogArea")
 		return err
 	}
-	return nil
+	return readiness.CheckDeployment(ctx, r.Client, namespacedName)
 }
 
 // reconcileDeployment will reconcile the ETOS logarea deployment to its expected state.
