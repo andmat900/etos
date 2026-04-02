@@ -97,12 +97,6 @@ func (r *MongoDBDeployment) Reconcile(ctx context.Context, cluster *etosv1alpha1
 		return err
 	}
 
-	if r.Deploy {
-		if err := readiness.CheckStatefulSet(ctx, r.Client, namespacedName); err != nil {
-			return err
-		}
-	}
-
 	return nil
 }
 
@@ -156,6 +150,7 @@ func (r *MongoDBDeployment) reconcileStatefulset(ctx context.Context, logger log
 			if err := r.Create(ctx, target); err != nil {
 				return target, err
 			}
+			return target, readiness.StatefulSetReady(target)
 		}
 		return mongodb, nil
 	} else if !r.Deploy {
@@ -168,7 +163,10 @@ func (r *MongoDBDeployment) reconcileStatefulset(ctx context.Context, logger log
 		}
 		target.Spec.Template.Annotations["etos.eiffel-community.github.io/restartedAt"] = time.Now().Format(time.RFC3339)
 	}
-	return target, r.Patch(ctx, target, client.StrategicMergeFrom(mongodb))
+	if err := r.Patch(ctx, target, client.StrategicMergeFrom(mongodb)); err != nil {
+		return target, err
+	}
+	return target, readiness.StatefulSetReady(target)
 }
 
 // reconcileService will reconcile the MongoDB service to its expected state.

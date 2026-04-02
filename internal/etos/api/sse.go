@@ -99,7 +99,7 @@ func (r *ETOSSSEDeployment) Reconcile(ctx context.Context, cluster *etosv1alpha1
 		logger.Error(err, "Failed to reconcile the service for the ETOS SSE")
 		return err
 	}
-	return readiness.CheckDeployment(ctx, r.Client, namespacedName)
+	return nil
 }
 
 // reconcileConfig will reconcile the secret to use as configuration for ETOS SSE.
@@ -149,7 +149,7 @@ func (r *ETOSSSEDeployment) reconcileDeployment(ctx context.Context, logger logr
 		if err := r.Create(ctx, target); err != nil {
 			return target, err
 		}
-		return target, nil
+		return target, readiness.DeploymentReady(target)
 	} else if r.restartRequired {
 		logger.Info("Configuration(s) have changed, restarting deployment")
 		if target.Spec.Template.Annotations == nil {
@@ -158,9 +158,12 @@ func (r *ETOSSSEDeployment) reconcileDeployment(ctx context.Context, logger logr
 		target.Spec.Template.Annotations["etos.eiffel-community.github.io/restartedAt"] = time.Now().Format(time.RFC3339)
 	}
 	if !r.restartRequired && equality.Semantic.DeepDerivative(target.Spec, deployment.Spec) {
-		return deployment, nil
+		return deployment, readiness.DeploymentReady(deployment)
 	}
-	return target, r.Patch(ctx, target, client.StrategicMergeFrom(deployment))
+	if err := r.Patch(ctx, target, client.StrategicMergeFrom(deployment)); err != nil {
+		return target, err
+	}
+	return target, readiness.DeploymentReady(target)
 }
 
 // reconcileRole will reconcile the ETOS SSE service account role to its expected state.
