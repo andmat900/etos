@@ -32,12 +32,14 @@ func VerifyETOSTestruns() {
 	Context("ETOS Testruns", func() {
 		AfterAll(func() {
 			By("cleaning up the artifact injector pod")
-			cmd := exec.Command("kubectl", "delete", "pod", "artifact-injector", "--namespace", clusterNamespace, "--ignore-not-found")
+			cmd := exec.Command("kubectl", "delete", "pod", "artifact-injector",
+				"--namespace", clusterNamespace, "--ignore-not-found")
 			_, _ = utils.Run(cmd)
 			By("cleaning up the ETOS testruns")
 			cmd = exec.Command("kubectl", "delete", "testrun", "testrun-sample", "-n", clusterNamespace, "--ignore-not-found")
 			_, _ = utils.Run(cmd)
-			cmd = exec.Command("kubectl", "delete", "testrun", "testrun-sample-multi-suite", "-n", clusterNamespace, "--ignore-not-found")
+			cmd = exec.Command("kubectl", "delete", "testrun",
+				"testrun-sample-multi-suite", "-n", clusterNamespace, "--ignore-not-found")
 			_, _ = utils.Run(cmd)
 
 			By("removing finalizers from EnvironmentRequests and Environments")
