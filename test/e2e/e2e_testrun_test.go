@@ -32,12 +32,12 @@ func VerifyETOSTestruns() {
 	Context("ETOS Testruns", func() {
 		AfterAll(func() {
 			By("cleaning up the artifact injector pod")
-			cmd := exec.Command("kubectl", "delete", "pod", "artifact-injector", "--namespace", clusterNamespace)
+			cmd := exec.Command("kubectl", "delete", "pod", "artifact-injector", "--namespace", clusterNamespace, "--ignore-not-found")
 			_, _ = utils.Run(cmd)
 			By("cleaning up the ETOS testruns")
-			cmd = exec.Command("kubectl", "delete", "testrun", "testrun-sample", "-n", clusterNamespace)
+			cmd = exec.Command("kubectl", "delete", "testrun", "testrun-sample", "-n", clusterNamespace, "--ignore-not-found")
 			_, _ = utils.Run(cmd)
-			cmd = exec.Command("kubectl", "delete", "testrun", "testrun-sample-multi-suite", "-n", clusterNamespace)
+			cmd = exec.Command("kubectl", "delete", "testrun", "testrun-sample-multi-suite", "-n", clusterNamespace, "--ignore-not-found")
 			_, _ = utils.Run(cmd)
 
 			By("removing finalizers from EnvironmentRequests and Environments")
@@ -61,6 +61,14 @@ func VerifyETOSTestruns() {
 				}
 				cmd := exec.Command("kubectl", "patch", "environment", name, "--patch", "{\"metadata\": {\"finalizers\": []}}")
 				_, _ = utils.Run(cmd)
+			}
+
+			if reuseCluster {
+				_, _ = fmt.Fprintf(GinkgoWriter, "E2E_REUSE=true: preserving providers and goer\n")
+				// This wait is necessary to make sure we clean up all resources before
+				// the next test run.
+				time.Sleep(10 * time.Second)
+				return
 			}
 
 			By("cleaning up the goer service")
@@ -95,7 +103,7 @@ func VerifyETOSTestruns() {
 
 		It("should be possible to deploy an ETOS execution space provider", func() {
 			By("deploying the sample Execution space provider")
-			cmd := exec.Command("kubectl", "create",
+			cmd := exec.Command("kubectl", "apply",
 				"-f", executionSpaceProviderSample,
 				"-n", clusterNamespace)
 			_, err := utils.Run(cmd)
@@ -114,7 +122,7 @@ func VerifyETOSTestruns() {
 		})
 		It("should be possible to deploy an ETOS IUT provider", func() {
 			By("deploying the sample IUT provider")
-			cmd := exec.Command("kubectl", "create",
+			cmd := exec.Command("kubectl", "apply",
 				"-f", iutProviderSample,
 				"-n", clusterNamespace)
 			_, err := utils.Run(cmd)
@@ -132,7 +140,7 @@ func VerifyETOSTestruns() {
 		})
 		It("should be possible to deploy an ETOS log area provider", func() {
 			By("deploying the sample Log area provider")
-			cmd := exec.Command("kubectl", "create",
+			cmd := exec.Command("kubectl", "apply",
 				"-f", logAreaProviderSample,
 				"-n", clusterNamespace)
 			_, err := utils.Run(cmd)
@@ -149,7 +157,7 @@ func VerifyETOSTestruns() {
 		})
 		It("should deploy Goer for execution space provider", func() {
 			By("applying the yaml file")
-			cmd := exec.Command("kubectl", "create", "-n", clusterNamespace, "-f", goer)
+			cmd := exec.Command("kubectl", "apply", "-n", clusterNamespace, "-f", goer)
 			_, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred(), "Failed to create a goer deployment")
 			verifyGoerReady := func(g Gomega) {
@@ -167,6 +175,11 @@ func VerifyETOSTestruns() {
 			fmt.Sprintf("event = EiffelArtifactCreatedEvent(); event.meta.event_id = '%s';", artifactID) +
 			fmt.Sprintf("event.data.identity = '%s';insert_to_db(event);", artifactIdentity)
 		It("should prepare test environment", func() {
+			By("cleaning up any existing artifact injector pod")
+			cleanupCmd := exec.Command("kubectl", "delete", "pod", "artifact-injector",
+				"--namespace", clusterNamespace, "--ignore-not-found")
+			_, _ = utils.Run(cleanupCmd)
+
 			By("injecting a fake artifact to test")
 			cmd := exec.Command("kubectl", "run", "artifact-injector", "--restart=Never",
 				"--namespace", clusterNamespace,
@@ -200,7 +213,12 @@ func VerifyETOSTestruns() {
 			// TODO: Remove when fixed: https://github.com/eiffel-community/etos/issues/408
 			By("creating a generic encryption key")
 			cmd = exec.Command("kubectl", "create", "secret", "-n", clusterNamespace, "generic",
-				"etos-encryption-key", "--from-literal", "ETOS_ENCRYPTION_KEY=ZmgcW2Qz43KNJfIuF0vYCoPneViMVyObH4GR8R9JE4g=")
+				"etos-encryption-key", "--from-literal", "ETOS_ENCRYPTION_KEY=ZmgcW2Qz43KNJfIuF0vYCoPneViMVyObH4GR8R9JE4g=",
+				"--dry-run=client", "-o", "yaml")
+			secretYaml, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to generate encryption key secret YAML")
+			cmd = exec.Command("kubectl", "apply", "-n", clusterNamespace, "-f", "-")
+			cmd.Stdin = strings.NewReader(secretYaml)
 			_, err = utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred(), "Failed to create an encryption key secret")
 			// Getting an EOF error every now and then from the environment-provider.
