@@ -153,9 +153,18 @@ var _ = Describe("Manager", Ordered, func() {
 			cmd = exec.Command("kubectl", "get", "events", "-n", namespace, "--sort-by=.lastTimestamp")
 			eventsOutput, err := utils.Run(cmd)
 			if err == nil {
-				_, _ = fmt.Fprintf(GinkgoWriter, "Kubernetes events:\n%s", eventsOutput)
+				_, _ = fmt.Fprintf(GinkgoWriter, "Kubernetes events in %s:\n%s", namespace, eventsOutput)
 			} else {
-				_, _ = fmt.Fprintf(GinkgoWriter, "Failed to get Kubernetes events: %s", err)
+				_, _ = fmt.Fprintf(GinkgoWriter, "Failed to get Kubernetes events from %s: %s", namespace, err)
+			}
+
+			By("Fetching Kubernetes events from cluster namespace")
+			cmd = exec.Command("kubectl", "get", "events", "-n", clusterNamespace, "--sort-by=.lastTimestamp")
+			clusterEventsOutput, err := utils.Run(cmd)
+			if err == nil {
+				_, _ = fmt.Fprintf(GinkgoWriter, "Kubernetes events in %s:\n%s", clusterNamespace, clusterEventsOutput)
+			} else {
+				_, _ = fmt.Fprintf(GinkgoWriter, "Failed to get Kubernetes events from %s: %s", clusterNamespace, err)
 			}
 
 			By("Fetching curl-metrics logs")
@@ -192,6 +201,43 @@ var _ = Describe("Manager", Ordered, func() {
 				_, _ = fmt.Fprintf(GinkgoWriter, "Testruns, environments and environmentrequests:\n %s", listOutput)
 			} else {
 				_, _ = fmt.Fprintf(GinkgoWriter, "Failed to get testruns, environments and environmentrequests: %s", err)
+			}
+
+			By("Fetching suite runner pod logs")
+			cmd = exec.Command("kubectl", "get", "pods", "-l", "etos.eiffel-community.github.io/id",
+				"-o", "custom-columns=:metadata.name", "--no-headers", "-n", clusterNamespace)
+			suiteRunnerPods, err := utils.Run(cmd)
+			if err == nil {
+				for _, podName := range utils.GetNonEmptyLines(suiteRunnerPods) {
+					_, _ = fmt.Fprintf(GinkgoWriter, "--- Logs for suite runner pod %s ---\n", podName)
+					logCmd := exec.Command("kubectl", "logs", podName, "--all-containers", "-n", clusterNamespace)
+					logOutput, logErr := utils.Run(logCmd)
+					if logErr == nil {
+						_, _ = fmt.Fprintf(GinkgoWriter, "%s\n", logOutput)
+					} else {
+						_, _ = fmt.Fprintf(GinkgoWriter, "Failed to get logs for pod %s: %s\n", podName, logErr)
+					}
+				}
+			} else {
+				_, _ = fmt.Fprintf(GinkgoWriter, "Failed to list suite runner pods: %s", err)
+			}
+
+			By("Describing suite runner pods")
+			cmd = exec.Command("kubectl", "describe", "pods", "-l", "etos.eiffel-community.github.io/id", "-n", clusterNamespace)
+			suiteRunnerDesc, err := utils.Run(cmd)
+			if err == nil {
+				_, _ = fmt.Fprintf(GinkgoWriter, "Suite runner pod descriptions:\n%s", suiteRunnerDesc)
+			} else {
+				_, _ = fmt.Fprintf(GinkgoWriter, "Failed to describe suite runner pods: %s", err)
+			}
+
+			By("Fetching Jobs in cluster namespace")
+			cmd = exec.Command("kubectl", "get", "jobs", "-n", clusterNamespace, "-o", "wide")
+			jobsOutput, err := utils.Run(cmd)
+			if err == nil {
+				_, _ = fmt.Fprintf(GinkgoWriter, "Jobs in %s:\n%s", clusterNamespace, jobsOutput)
+			} else {
+				_, _ = fmt.Fprintf(GinkgoWriter, "Failed to get jobs from %s: %s", clusterNamespace, err)
 			}
 		}
 	})
