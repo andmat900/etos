@@ -7,3 +7,4 @@ data:
   ETOS_ETCD_HOST: cluster-sample-etcd-client
   EIFFEL_GOER_URL: http://goer.etos-test.svc.cluster.local/v1/events
   ETOS_NAMESPACE: etos-test
+  REQUEST_TIMEOUT: "5m"
